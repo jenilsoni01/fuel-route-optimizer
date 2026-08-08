@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgis/postgis:15-3.3
+    container_name: spotter_postgis_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fuel_optimizer_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fuel_optimizer_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    container_name: spotter_fuel_optimizer_web
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py import_fuel_stations fuel-prices-for-be-assessment.csv &&
+             python scripts/populate_all_station_coords.py &&
+             python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - SECRET_KEY=django-insecure-spotter-fuel-route-optimizer-production-key
+      - DEBUG=True
+      - ALLOWED_HOSTS=*
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/fuel_optimizer_db
+      - OSRM_BASE_URL=https://router.project-osrm.org
+      - FUEL_ROUTE_CORRIDOR_MILES=10
+      - GEOCODING_USER_AGENT=SpotterFuelOptimizer/1.0
+      - CACHE_TTL_SECONDS=86400
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgis_data:
